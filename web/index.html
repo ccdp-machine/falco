@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Chromatic Tuner</title>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --fg: #f2f4f8;
+    --dim: #8a90a0;
+    --green: #34c759;
+    --orange: #ff9f0a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "SF Pro Rounded", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  #note {
+    font-size: 96px;
+    font-weight: 700;
+    line-height: 1.1;
+    height: 110px;
+    transition: color 0.15s;
+  }
+  #note sub { font-size: 40px; color: var(--dim); font-weight: 600; }
+  #gauge { width: 100%; max-width: 420px; }
+  #freq { font-size: 20px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  #cents { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; height: 22px; }
+  .in-tune { color: var(--green) !important; }
+  .off-tune { color: var(--orange); }
+  #calibration {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 17px;
+    color: var(--dim);
+  }
+  #calibration button {
+    width: 44px; height: 44px;
+    font-size: 24px;
+    border: 1px solid #2a2e3a;
+    border-radius: 12px;
+    background: #161a24;
+    color: var(--fg);
+  }
+  #a4 { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 80px; text-align: center; }
+  #start {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    border: none;
+    color: var(--fg);
+    font-size: 22px;
+    font-weight: 600;
+    font-family: inherit;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  #start .hint { font-size: 15px; font-weight: 400; color: var(--dim); max-width: 280px; }
+  #start .big { font-size: 56px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <button id="start">
+    <span class="big">&#119070;</span>
+    <span>Tap to start tuning</span>
+    <span class="hint">Safari will ask for microphone access — the audio never leaves your phone.</span>
+  </button>
+
+  <div id="note">&ndash;</div>
+  <canvas id="gauge" width="840" height="400"></canvas>
+  <div>
+    <div id="freq">Listening&hellip;</div>
+    <div id="cents">&nbsp;</div>
+  </div>
+  <div id="calibration">
+    <span>A4</span>
+    <button id="a4down" aria-label="lower A4">&minus;</button>
+    <span id="a4">440 Hz</span>
+    <button id="a4up" aria-label="raise A4">+</button>
+  </div>
+
+<script>
+"use strict";
+
+const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+const ANALYSIS_SIZE = 4096;
+const IN_TUNE_CENTS = 5;
+let referenceA4 = 440;
+
+/* --- YIN pitch detection, same algorithm as PitchDetector.swift --- */
+function detectPitch(buffer, sampleRate, threshold = 0.15, minFreq = 27.5, maxFreq = 2200) {
+  const n = buffer.length;
+  const maxLag = Math.min(Math.floor(sampleRate / minFreq), n >> 1);
+  const minLag = Math.max(Math.floor(sampleRate / maxFreq), 2);
+  if (maxLag <= minLag) return null;
+
+  let power = 0;
+  for (let i = 0; i < n; i++) power += buffer[i] * buffer[i];
+  if (power / n <= 1e-6) return null;
+
+  const diff = new Float32Array(maxLag + 1);
+  const windowLen = n - maxLag;
+  for (let tau = 1; tau <= maxLag; tau++) {
+    let sum = 0;
+    for (let i = 0; i < windowLen; i++) {
+      const delta = buffer[i] - buffer[i + tau];
+      sum += delta * delta;
+    }
+    diff[tau] = sum;
+  }
+
+  const cmndf = new Float32Array(maxLag + 1).fill(1);
+  let runningSum = 0;
+  for (let tau = 1; tau <= maxLag; tau++) {
+    runningSum += diff[tau];
+    if (runningSum > 0) cmndf[tau] = diff[tau] * tau / runningSum;
+  }
+
+  let tauEstimate = -1;
+  for (let tau = minLag; tau <= maxLag; tau++) {
+    if (cmndf[tau] < threshold) {
+      while (tau + 1 <= maxLag && cmndf[tau + 1] < cmndf[tau]) tau++;
+      tauEstimate = tau;
+      break;
+    }
+  }
+  if (tauEstimate < 0) return null;
+
+  let betterTau = tauEstimate;
+  if (tauEstimate > minLag && tauEstimate < maxLag) {
+    const s0 = cmndf[tauEstimate - 1], s1 = cmndf[tauEstimate], s2 = cmndf[tauEstimate + 1];
+    const denom = 2 * (2 * s1 - s2 - s0);
+    if (denom !== 0) betterTau += (s2 - s0) / denom;
+  }
+
+  const freq = sampleRate / betterTau;
+  return (freq >= minFreq && freq <= maxFreq) ? freq : null;
+}
+
+/* --- note mapping, same as TunerReading in TunerEngine.swift --- */
+function makeReading(frequency) {
+  const semitonesFromA4 = 12 * Math.log2(frequency / referenceA4);
+  const midi = Math.round(semitonesFromA4 + 69);
+  const nearest = referenceA4 * Math.pow(2, (midi - 69) / 12);
+  return {
+    frequency,
+    cents: 1200 * Math.log2(frequency / nearest),
+    noteName: NOTE_NAMES[((midi % 12) + 12) % 12],
+    octave: Math.floor(midi / 12) - 1,
+  };
+}
+
+/* --- gauge rendering --- */
+const canvas = document.getElementById("gauge");
+const ctx = canvas.getContext("2d");
+let needleCents = 0;       // animated needle position
+let targetCents = null;    // latest reading (null = no signal)
+
+function angleFor(cents) {
+  const sweep = (2 * Math.PI) / 3; // 120 degrees total
+  return -Math.PI / 2 + (cents / 50) * (sweep / 2);
+}
+
+function drawGauge() {
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h * 0.95;
+  const radius = Math.min(w / 2, h) * 0.82;
+  ctx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const green = css.getPropertyValue("--green").trim();
+  const orange = css.getPropertyValue("--orange").trim();
+  const dim = css.getPropertyValue("--dim").trim();
+
+  // ticks every 10 cents
+  for (let t = -5; t <= 5; t++) {
+    const a = angleFor(t * 10);
+    const major = t === 0 || Math.abs(t) === 5;
+    const len = major ? 36 : 20;
+    ctx.beginPath();
+    ctx.moveTo(cx + (radius - len) * Math.cos(a), cy + (radius - len) * Math.sin(a));
+    ctx.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
+    ctx.strokeStyle = t === 0 ? green : dim;
+    ctx.globalAlpha = t === 0 ? 1 : 0.5;
+    ctx.lineWidth = major ? 6 : 3;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // in-tune arc
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + 12, angleFor(-IN_TUNE_CENTS), angleFor(IN_TUNE_CENTS));
+  ctx.strokeStyle = green;
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 12;
+  ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // flat / sharp labels
+  ctx.font = "40px -apple-system, system-ui, sans-serif";
+  ctx.fillStyle = dim;
+  ctx.textAlign = "center";
+  ctx.fillText("♭", cx - radius - 34, cy - 10);
+  ctx.fillText("♯", cx + radius + 34, cy - 10);
+
+  // needle
+  if (targetCents !== null) {
+    const a = angleFor(Math.max(-50, Math.min(50, needleCents)));
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + (radius - 48) * Math.cos(a), cy + (radius - 48) * Math.sin(a));
+    ctx.strokeStyle = Math.abs(needleCents) <= IN_TUNE_CENTS ? green : orange;
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+
+  // hub
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, 2 * Math.PI);
+  ctx.fillStyle = css.getPropertyValue("--fg").trim();
+  ctx.fill();
+}
+
+function animate() {
+  if (targetCents !== null) {
+    needleCents += (targetCents - needleCents) * 0.25; // springy follow
+  }
+  drawGauge();
+  requestAnimationFrame(animate);
+}
+
+/* --- audio --- */
+const noteEl = document.getElementById("note");
+const freqEl = document.getElementById("freq");
+const centsEl = document.getElementById("cents");
+let smoothedFrequency = null;
+
+function updateDisplay(reading) {
+  if (!reading) {
+    targetCents = null;
+    noteEl.innerHTML = "&ndash;";
+    noteEl.classList.remove("in-tune");
+    freqEl.textContent = "Listening…";
+    centsEl.innerHTML = "&nbsp;";
+    return;
+  }
+  const inTune = Math.abs(reading.cents) <= IN_TUNE_CENTS;
+  targetCents = reading.cents;
+  noteEl.innerHTML = reading.noteName + "<sub>" + reading.octave + "</sub>";
+  noteEl.classList.toggle("in-tune", inTune);
+  freqEl.textContent = reading.frequency.toFixed(1) + " Hz";
+  centsEl.textContent = (reading.cents >= 0 ? "+" : "") + reading.cents.toFixed(0) + " cents";
+  centsEl.className = inTune ? "in-tune" : "off-tune";
+}
+
+async function startTuner() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+  });
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  await audioCtx.resume();
+  const source = audioCtx.createMediaStreamSource(stream);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = ANALYSIS_SIZE;
+  source.connect(analyser);
+
+  const buffer = new Float32Array(ANALYSIS_SIZE);
+  setInterval(() => {
+    analyser.getFloatTimeDomainData(buffer);
+    const freq = detectPitch(buffer, audioCtx.sampleRate);
+    if (freq === null) {
+      smoothedFrequency = null;
+      updateDisplay(null);
+      return;
+    }
+    // exponential smoothing; snap on jumps to a different note
+    if (smoothedFrequency !== null && Math.abs(1200 * Math.log2(freq / smoothedFrequency)) < 80) {
+      smoothedFrequency = smoothedFrequency * 0.7 + freq * 0.3;
+    } else {
+      smoothedFrequency = freq;
+    }
+    updateDisplay(makeReading(smoothedFrequency));
+  }, 80);
+}
+
+document.getElementById("start").addEventListener("click", async (e) => {
+  try {
+    await startTuner();
+    e.target.classList.add("hidden");
+  } catch (err) {
+    e.target.querySelector(".hint").textContent =
+      "Microphone unavailable: " + err.message + " — check Settings → Safari → Microphone.";
+  }
+});
+
+document.getElementById("a4down").addEventListener("click", () => setA4(referenceA4 - 1));
+document.getElementById("a4up").addEventListener("click", () => setA4(referenceA4 + 1));
+function setA4(value) {
+  referenceA4 = Math.max(415, Math.min(466, value));
+  document.getElementById("a4").textContent = referenceA4 + " Hz";
+  if (smoothedFrequency !== null) updateDisplay(makeReading(smoothedFrequency));
+}
+
+animate();
+</script>
+</body>
+</html>
