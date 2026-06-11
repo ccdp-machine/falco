@@ -9,15 +9,27 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 24) {
+            Picker("Mode", selection: $tuner.mode) {
+                ForEach(TunerMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 280)
+
             Spacer()
 
-            noteDisplay
+            if tuner.mode == .tuner {
+                noteDisplay
 
-            GaugeView(cents: tuner.reading?.cents, tolerance: inTuneTolerance)
-                .frame(height: 180)
-                .padding(.horizontal)
+                GaugeView(cents: tuner.reading?.cents, tolerance: inTuneTolerance)
+                    .frame(height: 180)
+                    .padding(.horizontal)
 
-            frequencyDisplay
+                frequencyDisplay
+            } else {
+                chordDisplay
+            }
 
             Spacer()
 
@@ -55,6 +67,25 @@ struct ContentView: View {
         }
         .frame(height: 110)
         .animation(.easeOut(duration: 0.1), value: tuner.reading?.noteName)
+    }
+
+    private var chordDisplay: some View {
+        VStack(spacing: 16) {
+            Text(tuner.chord?.name ?? "–")
+                .font(.system(size: 72, weight: .bold, design: .rounded))
+                .foregroundStyle(tuner.chord == nil ? Color.primary : Color.green)
+                .frame(height: 110)
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: 0.1), value: tuner.chord?.name)
+
+            Text(tuner.chord.map { $0.notes.joined(separator: " · ") } ?? "Play a chord…")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+
+            Text(tuner.chord.map { $0.score > 0.92 ? "confident" : "probable" } ?? " ")
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+        }
     }
 
     private var frequencyDisplay: some View {

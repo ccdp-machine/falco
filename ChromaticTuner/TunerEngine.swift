@@ -23,13 +23,31 @@ struct TunerReading: Equatable {
     }
 }
 
+enum TunerMode: String, CaseIterable, Identifiable {
+    case tuner = "Tuner"
+    case chord = "Chord"
+    var id: String { rawValue }
+}
+
 /// Captures microphone audio with AVAudioEngine and continuously publishes
 /// pitch readings for the UI.
 @MainActor
 final class TunerEngine: ObservableObject {
     @Published private(set) var reading: TunerReading?
+    @Published private(set) var chord: ChordResult?
     @Published private(set) var isRunning = false
     @Published private(set) var permissionDenied = false
+
+    @Published var mode: TunerMode = .tuner {
+        didSet {
+            reading = nil
+            chord = nil
+            smoothedFrequency = nil
+            sampleBuffer.removeAll()
+            recentChordNames.removeAll()
+            emptyChordFrames = 0
+        }
+    }
 
     /// Calibration: frequency of A4 in Hz, adjustable in the UI.
     @Published var referenceA4: Double = 440 {
@@ -42,9 +60,16 @@ final class TunerEngine: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let detector = PitchDetector()
-    private let analysisSize = 4096
+    private let chordDetector = ChordDetector()
+    private let pitchAnalysisSize = 4096
     private var sampleBuffer: [Float] = []
     private var smoothedFrequency: Double?
+    private var recentChordNames: [String] = []
+    private var emptyChordFrames = 0
+
+    private var analysisSize: Int {
+        mode == .chord ? ChordDetector.fftSize : pitchAnalysisSize
+    }
 
     func start() {
         guard !isRunning else { return }
@@ -67,8 +92,11 @@ final class TunerEngine: ObservableObject {
         engine.stop()
         isRunning = false
         reading = nil
+        chord = nil
         smoothedFrequency = nil
         sampleBuffer.removeAll()
+        recentChordNames.removeAll()
+        emptyChordFrames = 0
     }
 
     private func startEngine() {
@@ -107,6 +135,11 @@ final class TunerEngine: ObservableObject {
             sampleBuffer.removeFirst(sampleBuffer.count - analysisSize)
         }
 
+        if mode == .chord {
+            processChord(frame: frame, sampleRate: sampleRate)
+            return
+        }
+
         guard let frequency = detector.detectPitch(in: frame, sampleRate: sampleRate) else {
             // Let the displayed reading linger briefly via smoothing reset.
             smoothedFrequency = nil
@@ -122,5 +155,27 @@ final class TunerEngine: ObservableObject {
             smoothedFrequency = Double(frequency)
         }
         reading = TunerReading(frequency: smoothedFrequency!, referenceA4: referenceA4)
+    }
+
+    /// Show a chord once it wins 2 of the last 3 frames; clear only after a
+    /// few empty frames so strums don't flicker.
+    private func processChord(frame: [Float], sampleRate: Float) {
+        let detected = chordDetector.analyze(frame, sampleRate: sampleRate,
+                                             referenceA4: Float(referenceA4))
+        if let detected {
+            emptyChordFrames = 0
+            recentChordNames.append(detected.name)
+            if recentChordNames.count > 3 { recentChordNames.removeFirst() }
+            let wins = recentChordNames.filter { $0 == detected.name }.count
+            if wins >= 2 || chord == nil {
+                chord = detected
+            }
+        } else {
+            recentChordNames.removeAll()
+            emptyChordFrames += 1
+            if emptyChordFrames >= 4 {
+                chord = nil
+            }
+        }
     }
 }

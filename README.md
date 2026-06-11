@@ -12,6 +12,10 @@ A chromatic instrument tuner for iPhone, built with SwiftUI and AVAudioEngine.
 - **Frequency readout** in Hz and cents offset.
 - **A4 calibration** adjustable from 415–466 Hz (default 440 Hz).
 - Exponential smoothing keeps the needle steady without feeling laggy.
+- **Chord mode**: detects major, minor, 7th, maj7, m7, sus2/4, dim, aug and
+  power chords from a strum, via FFT → spectral peaks → chroma →
+  template matching (with harmonic damping so overtones don't masquerade
+  as chord tones).
 
 ## Requirements
 
@@ -35,6 +39,10 @@ A chromatic instrument tuner for iPhone, built with SwiftUI and AVAudioEngine.
 | File | Purpose |
 | --- | --- |
 | `ChromaticTuner/PitchDetector.swift` | YIN fundamental-frequency estimation |
-| `ChromaticTuner/TunerEngine.swift` | Microphone capture, smoothing, note/cents mapping |
-| `ChromaticTuner/ContentView.swift` | Tuner UI: note display, cents gauge, calibration |
+| `ChromaticTuner/ChordDetector.swift` | Chord detection: FFT, chroma, template matching |
+| `ChromaticTuner/TunerEngine.swift` | Microphone capture, smoothing, note/cents/chord mapping |
+| `ChromaticTuner/ContentView.swift` | Tuner UI: mode switch, note/chord display, cents gauge, calibration |
 | `ChromaticTuner/ChromaticTunerApp.swift` | App entry point |
+| `web/index.html` + `web/tuner.js` | Browser version (same algorithms, Web Audio API) |
+| `tools/test_chords.js` | Node tests for the chord detector (`node tools/test_chords.js`) |
+| `tools/terminal_preview.py` | Terminal demo / live tuner (`--mic`) |
