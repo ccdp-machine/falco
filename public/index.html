@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Web Screen Reader</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🔊 Web Screen Reader</h1>
+    <p class="tagline">Reads text, web pages, your clipboard and your screen — out loud.</p>
+  </header>
+
+  <section class="toolbar" aria-label="Speech controls">
+    <div class="control">
+      <label for="voice">Voice</label>
+      <select id="voice"></select>
+    </div>
+    <div class="control">
+      <label for="rate">Speed <span id="rate-value">1.0×</span></label>
+      <input type="range" id="rate" min="0.5" max="2.5" step="0.1" value="1" />
+    </div>
+    <div class="control">
+      <label for="pitch">Pitch <span id="pitch-value">1.0</span></label>
+      <input type="range" id="pitch" min="0.5" max="2" step="0.1" value="1" />
+    </div>
+    <div class="transport">
+      <button id="play" class="primary">▶ Play</button>
+      <button id="pause">⏸ Pause</button>
+      <button id="stop">⏹ Stop</button>
+    </div>
+  </section>
+
+  <nav>
+    <div role="tablist" aria-label="Reading modes">
+      <button role="tab" data-tab="text" aria-selected="true">📝 Text</button>
+      <button role="tab" data-tab="web" aria-selected="false" tabindex="-1">🌐 Web Page</button>
+      <button role="tab" data-tab="ocr" aria-selected="false" tabindex="-1">🖥 Screen OCR</button>
+    </div>
+  </nav>
+
+  <main>
+    <section role="tabpanel" data-panel="text" aria-label="Text reader">
+      <div class="actions">
+        <button id="read-text" class="primary">▶ Read</button>
+        <button id="paste-clipboard">📋 Paste from clipboard</button>
+        <label class="file-button">
+          📂 Open text file
+          <input type="file" id="open-file" accept=".txt,.md,.csv,.log,text/*" hidden />
+        </label>
+      </div>
+      <textarea
+        id="text-input"
+        rows="12"
+        placeholder="Type or paste text here, paste your clipboard, or open a text file — then press Read."
+        aria-label="Text to read aloud"
+      ></textarea>
+      <div id="text-display" class="text-display" hidden aria-hidden="true"></div>
+    </section>
+
+    <section role="tabpanel" data-panel="web" aria-label="Web page reader" hidden>
+      <div class="actions">
+        <input
+          type="url"
+          id="url-input"
+          placeholder="https://example.com/article"
+          aria-label="Web page address"
+        />
+        <button id="load-page" class="primary">Load page</button>
+      </div>
+      <p class="hint">
+        After loading, focus the article and navigate like a screen reader:
+        <kbd>↓</kbd>/<kbd>↑</kbd> elements · <kbd>h</kbd> headings · <kbd>k</kbd> links ·
+        <kbd>Enter</kbd> open link · <kbd>Space</kbd> repeat — or press Play to read everything.
+      </p>
+      <article id="article" tabindex="0" aria-label="Loaded page content"></article>
+    </section>
+
+    <section role="tabpanel" data-panel="ocr" aria-label="Screen OCR reader" hidden>
+      <div class="actions">
+        <button id="capture" class="primary">🖥 Capture screen &amp; read</button>
+        <button id="read-ocr">▶ Read again</button>
+      </div>
+      <p class="hint">
+        Pick any screen, window or browser tab. A single frame is captured, the text on it is
+        recognized locally in your browser, and read aloud. Nothing is uploaded.
+      </p>
+      <textarea
+        id="ocr-output"
+        rows="12"
+        placeholder="Recognized text will appear here."
+        aria-label="Recognized screen text"
+      ></textarea>
+    </section>
+  </main>
+
+  <footer>
+    <p id="status" role="status" aria-live="polite">Ready.</p>
+    <p class="hint">Shortcuts: <kbd>Esc</kbd> stop · <kbd>p</kbd> pause/resume</p>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

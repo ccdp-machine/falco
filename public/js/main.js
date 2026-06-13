@@ -1,0 +1,307 @@
+import { SpeechEngine } from './speech.js';
+import { ContentNavigator } from './navigator.js';
+import { isCaptureSupported, captureScreenFrame, recognizeText } from './ocr.js';
+
+const $ = (sel) => document.querySelector(sel);
+
+const speech = new SpeechEngine();
+const statusEl = $('#status');
+
+function setStatus(message) {
+  statusEl.textContent = message;
+}
+
+// ---------------------------------------------------------------- toolbar
+
+const voiceSelect = $('#voice');
+document.addEventListener('voicesloaded', (e) => {
+  voiceSelect.innerHTML = '';
+  for (const voice of e.detail) {
+    const option = document.createElement('option');
+    option.value = voice.voiceURI;
+    option.textContent = `${voice.name} (${voice.lang})`;
+    option.selected = voice === speech.voice;
+    voiceSelect.appendChild(option);
+  }
+});
+voiceSelect.addEventListener('change', () => speech.setVoice(voiceSelect.value));
+
+$('#rate').addEventListener('input', (e) => {
+  speech.rate = parseFloat(e.target.value);
+  $('#rate-value').textContent = `${speech.rate.toFixed(1)}×`;
+});
+$('#pitch').addEventListener('input', (e) => {
+  speech.pitch = parseFloat(e.target.value);
+  $('#pitch-value').textContent = speech.pitch.toFixed(1);
+});
+
+const playBtn = $('#play');
+const pauseBtn = $('#pause');
+const stopBtn = $('#stop');
+
+speech.onStateChange = (state) => {
+  playBtn.disabled = state === 'speaking';
+  pauseBtn.disabled = state === 'stopped';
+  pauseBtn.textContent = state === 'paused' ? '▶ Resume' : '⏸ Pause';
+  stopBtn.disabled = state === 'stopped';
+};
+speech.onStateChange('stopped');
+
+pauseBtn.addEventListener('click', () => speech.togglePause());
+stopBtn.addEventListener('click', () => speech.stop());
+playBtn.addEventListener('click', () => readCurrentTab());
+
+// ------------------------------------------------------------------ tabs
+
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+let activeTab = 'text';
+
+function selectTab(name) {
+  activeTab = name;
+  speech.stop();
+  for (const tab of tabs) {
+    const selected = tab.dataset.tab === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  for (const panel of panels) {
+    panel.hidden = panel.dataset.panel !== name;
+  }
+}
+
+tabs.forEach((tab, i) => {
+  tab.addEventListener('click', () => selectTab(tab.dataset.tab));
+  tab.addEventListener('keydown', (e) => {
+    const dir = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (dir) {
+      const next = tabs[(i + dir + tabs.length) % tabs.length];
+      next.focus();
+      selectTab(next.dataset.tab);
+    }
+  });
+});
+
+// ----------------------------------------------------------- text reader
+
+const textInput = $('#text-input');
+const textDisplay = $('#text-display');
+
+// Reads plain text, mirroring it into a display element where the word
+// being spoken is highlighted.
+function readPlainText(text) {
+  if (!text.trim()) {
+    setStatus('Nothing to read.');
+    return;
+  }
+  textDisplay.textContent = '';
+  textDisplay.hidden = false;
+  textInput.hidden = true;
+
+  const before = document.createTextNode('');
+  const mark = document.createElement('mark');
+  const after = document.createTextNode(text);
+  textDisplay.append(before, mark, after);
+
+  speech.speak(text, {
+    onWord: (charIndex, word) => {
+      before.textContent = text.slice(0, charIndex);
+      mark.textContent = word;
+      after.textContent = text.slice(charIndex + word.length);
+    },
+    onEnd: () => {
+      textDisplay.hidden = true;
+      textInput.hidden = false;
+      setStatus('Finished reading.');
+    },
+  });
+  setStatus('Reading…');
+}
+
+$('#read-text').addEventListener('click', () => readPlainText(textInput.value));
+
+$('#paste-clipboard').addEventListener('click', async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      setStatus('Clipboard is empty.');
+      return;
+    }
+    textInput.value = text;
+    setStatus('Clipboard pasted. Press Read to listen.');
+  } catch {
+    setStatus('Clipboard access was denied. Paste manually with Ctrl+V.');
+  }
+});
+
+$('#open-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  file.text().then((text) => {
+    textInput.value = text;
+    setStatus(`Loaded ${file.name}. Press Read to listen.`);
+  });
+});
+
+speech.onStateChange = ((original) => (state) => {
+  original(state);
+  if (state === 'stopped' && textDisplay && !textDisplay.hidden && !speech.speaking) {
+    textDisplay.hidden = true;
+    textInput.hidden = false;
+  }
+})(speech.onStateChange);
+
+// ------------------------------------------------------- web page reader
+
+const articleEl = $('#article');
+const navigator_ = new ContentNavigator(articleEl, speech, setStatus);
+
+// Strips scripts, styles, event handlers and javascript: URLs from
+// server-extracted article HTML before inserting it into the page.
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc
+    .querySelectorAll('script, style, iframe, object, embed, link, meta, form')
+    .forEach((el) => el.remove());
+  for (const el of doc.body.querySelectorAll('*')) {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on')) el.removeAttribute(attr.name);
+      if (
+        (name === 'href' || name === 'src') &&
+        attr.value.trim().toLowerCase().startsWith('javascript:')
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+  return doc.body.innerHTML;
+}
+
+let currentArticleText = '';
+
+async function loadPage() {
+  const url = $('#url-input').value.trim();
+  if (!url) return;
+  setStatus('Fetching page…');
+  articleEl.innerHTML = '<p>Loading…</p>';
+
+  try {
+    const res = await fetch(`/api/page?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to fetch page.');
+
+    articleEl.innerHTML = '';
+    const h1 = document.createElement('h1');
+    h1.textContent = data.title;
+    articleEl.appendChild(h1);
+    if (data.byline) {
+      const p = document.createElement('p');
+      p.className = 'byline';
+      p.textContent = data.byline;
+      articleEl.appendChild(p);
+    }
+    const body = document.createElement('div');
+    body.innerHTML = sanitizeHtml(data.content);
+    articleEl.appendChild(body);
+
+    currentArticleText = `${data.title}. ${data.byline ? data.byline + '. ' : ''}${data.textContent}`;
+    navigator_.refresh();
+    articleEl.focus();
+    const wordCount = data.textContent.split(/\s+/).length;
+    setStatus(
+      `Loaded "${data.title}" (about ${wordCount} words). ` +
+        'Use arrow keys to navigate, or press Play to read it all.'
+    );
+    speech.announce(`Loaded ${data.title}. Use arrow keys to navigate.`);
+  } catch (err) {
+    articleEl.innerHTML = '';
+    currentArticleText = '';
+    setStatus(err.message);
+    speech.announce(err.message);
+  }
+}
+
+$('#load-page').addEventListener('click', loadPage);
+$('#url-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') loadPage();
+});
+
+// --------------------------------------------------------------- screen OCR
+
+const ocrOutput = $('#ocr-output');
+const captureBtn = $('#capture');
+
+if (!isCaptureSupported()) {
+  captureBtn.disabled = true;
+  setStatus('Screen capture is not supported in this browser.');
+}
+
+captureBtn.addEventListener('click', async () => {
+  try {
+    setStatus('Choose a screen, window or tab to read…');
+    const frame = await captureScreenFrame();
+    setStatus('Recognizing text…');
+    captureBtn.disabled = true;
+
+    const text = await recognizeText(frame, (p) => {
+      setStatus(`Recognizing text… ${Math.round(p * 100)}%`);
+    });
+    captureBtn.disabled = false;
+
+    if (!text) {
+      setStatus('No text found on the captured screen.');
+      speech.announce('No text found.');
+      return;
+    }
+    ocrOutput.value = text;
+    setStatus('Text recognized. Reading…');
+    speech.speak(text, { onEnd: () => setStatus('Finished reading.') });
+  } catch (err) {
+    captureBtn.disabled = false;
+    if (err.name === 'NotAllowedError') {
+      setStatus('Screen capture was cancelled.');
+    } else {
+      setStatus(err.message || 'Screen capture failed.');
+    }
+  }
+});
+
+$('#read-ocr').addEventListener('click', () => {
+  speech.speak(ocrOutput.value, { onEnd: () => setStatus('Finished reading.') });
+});
+
+// ------------------------------------------------------------- play action
+
+function readCurrentTab() {
+  if (activeTab === 'text') {
+    readPlainText(textInput.value);
+  } else if (activeTab === 'web') {
+    if (!currentArticleText) {
+      setStatus('Load a page first.');
+      return;
+    }
+    speech.speak(currentArticleText, { onEnd: () => setStatus('Finished reading.') });
+    setStatus('Reading page…');
+  } else if (activeTab === 'ocr') {
+    if (!ocrOutput.value.trim()) {
+      setStatus('Capture the screen first.');
+      return;
+    }
+    speech.speak(ocrOutput.value, { onEnd: () => setStatus('Finished reading.') });
+    setStatus('Reading…');
+  }
+}
+
+// ------------------------------------------------------- global shortcuts
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, select')) return;
+  if (e.key === 'Escape') speech.stop();
+  if (e.key === 'p' && !e.ctrlKey && !e.metaKey) speech.togglePause();
+});
+
+if (!SpeechEngine.isSupported()) {
+  setStatus('This browser does not support speech synthesis.');
+  playBtn.disabled = true;
+}

@@ -1,0 +1,20 @@
+{
+  "name": "web-screen-reader",
+  "version": "0.1.0",
+  "description": "A browser-based screen reader: reads text, web pages, clipboard, and on-screen content (via OCR) aloud, with a keyboard-driven accessibility navigator.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "express": "^4.19.2",
+    "jsdom": "^24.1.0"
+  },
+  "license": "MIT"
+}
