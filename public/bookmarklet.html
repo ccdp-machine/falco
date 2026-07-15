@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bookmarklet — Web Screen Reader</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1419" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+</head>
+<body>
+  <header>
+    <h1>📱 Read Aloud bookmarklet</h1>
+    <p class="tagline">
+      Chrome on iPhone doesn't support browser extensions, so there's no way to install a
+      screen-reader add-on the usual way. A <strong>bookmarklet</strong> — a bookmark whose
+      address is a snippet of JavaScript instead of a URL — sidesteps that: tapping it injects
+      the reader into whatever page you're already on.
+    </p>
+  </header>
+
+  <main>
+    <section role="tabpanel" aria-label="Get the bookmarklet">
+      <h2 style="margin-top:0">1. Copy the bookmarklet code</h2>
+      <p class="hint">
+        This is the entire reader (<a href="reader.js">reader.js</a>), inlined into a single
+        <code>javascript:</code> URL. Nothing is uploaded anywhere; it only runs in your browser.
+      </p>
+      <div class="actions">
+        <button id="copy" class="primary">📋 Copy bookmarklet</button>
+        <span class="hint" id="size">Building…</span>
+      </div>
+      <textarea id="code" rows="6" readonly aria-label="Bookmarklet code"></textarea>
+    </section>
+
+    <section role="tabpanel" aria-label="Install on iPhone Chrome" style="margin-top:1rem">
+      <h2>2. Install it in Chrome on iPhone</h2>
+      <ol>
+        <li>Copy the code above (tap "Copy bookmarklet").</li>
+        <li>Bookmark any page: tap <strong>Share</strong> → <strong>Add Bookmark</strong>.</li>
+        <li>Open <strong>Bookmarks</strong> (the ☆ / list icon), then tap <strong>Edit</strong> on the new bookmark.</li>
+        <li>Rename it <strong>"Read Aloud"</strong> and replace its address with the code you copied, then save.</li>
+        <li>On any page you want read aloud: tap the address bar, type <strong>Read Aloud</strong>, and tap it.</li>
+      </ol>
+      <p class="hint">
+        A floating toolbar appears at the bottom of the page with play/pause/stop, previous/next
+        element, previous/next heading, and speed controls. Tap the bookmark again to remove it.
+      </p>
+    </section>
+
+    <section role="tabpanel" aria-label="Try it here" style="margin-top:1rem">
+      <h2>Try it on this page</h2>
+      <div class="actions">
+        <button id="try-it">▶ Try it here</button>
+      </div>
+      <p class="hint">Injects the same reader into this page, for a quick test before you install it.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p class="hint"><a href="index.html">← Back to Web Screen Reader</a></p>
+  </footer>
+
+  <script>
+    // Fetches reader.js, strips full-line comments and leading whitespace
+    // (a naive minification that can't break the code, since this project's
+    // style never puts a trailing "//" comment on the same line as code),
+    // then wraps it as a javascript: bookmarklet that eval()s the decoded
+    // source. Inlining the whole script means the bookmarklet works without
+    // any network request at tap time.
+    async function buildBookmarklet() {
+      const res = await fetch('/reader.js');
+      const src = await res.text();
+      const minified = src
+        .split('\n')
+        .map((line) => line.replace(/^\s+/, ''))
+        .filter((line) => line && !line.startsWith('//'))
+        .join('\n');
+      const encoded = encodeURIComponent(minified);
+      const bookmarklet = `javascript:(function(){eval(decodeURIComponent("${encoded}"))})();`;
+      document.getElementById('code').value = bookmarklet;
+      const kb = (new Blob([bookmarklet]).size / 1024).toFixed(1);
+      document.getElementById('size').textContent = `${kb} KB`;
+      return bookmarklet;
+    }
+
+    const ready = buildBookmarklet().catch((err) => {
+      document.getElementById('size').textContent = 'Could not build the bookmarklet.';
+      console.error(err);
+    });
+
+    document.getElementById('copy').addEventListener('click', async () => {
+      const codeEl = document.getElementById('code');
+      codeEl.select();
+      try {
+        await navigator.clipboard.writeText(codeEl.value);
+      } catch {
+        document.execCommand('copy');
+      }
+    });
+
+    document.getElementById('try-it').addEventListener('click', () => {
+      const script = document.createElement('script');
+      script.src = '/reader.js';
+      document.body.appendChild(script);
+    });
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

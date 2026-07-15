@@ -9,9 +9,16 @@
 //   Home / End   first / last element
 //   Enter        activate current link
 //   Space        re-read current element
+//
+// The same moves are exposed as public methods (next/prev/nextHeading/
+// prevHeading/first/repeat) so a touch toolbar can drive the navigator
+// identically to the keyboard.
 
 const NAVIGABLE_SELECTOR =
   'h1, h2, h3, h4, h5, h6, p, li, a[href], img[alt], blockquote, figcaption, th, td, pre';
+
+const isHeading = (el) => /^H[1-6]$/.test(el.tagName);
+const isLink = (el) => el.tagName === 'A';
 
 export class ContentNavigator {
   constructor(container, speech, statusCallback) {
@@ -30,6 +37,32 @@ export class ContentNavigator {
       (el) => this.#describe(el).text || el.tagName === 'IMG'
     );
     this.index = -1;
+  }
+
+  // ------------------------------------------------------- public moves
+
+  next() {
+    this.#move(1);
+  }
+
+  prev() {
+    this.#move(-1);
+  }
+
+  nextHeading() {
+    this.#move(1, isHeading);
+  }
+
+  prevHeading() {
+    this.#move(-1, isHeading);
+  }
+
+  first() {
+    this.#jumpTo(0);
+  }
+
+  repeat() {
+    if (this.index >= 0) this.#announce(this.elements[this.index]);
   }
 
   #describe(el) {
@@ -99,20 +132,17 @@ export class ContentNavigator {
   }
 
   #onKeydown(e) {
-    const isHeading = (el) => /^H[1-6]$/.test(el.tagName);
-    const isLink = (el) => el.tagName === 'A';
-
     const actions = {
-      ArrowDown: () => this.#move(1),
-      ArrowUp: () => this.#move(-1),
-      h: () => this.#move(e.shiftKey ? -1 : 1, isHeading),
-      H: () => this.#move(e.shiftKey ? -1 : 1, isHeading),
+      ArrowDown: () => this.next(),
+      ArrowUp: () => this.prev(),
+      h: () => (e.shiftKey ? this.prevHeading() : this.nextHeading()),
+      H: () => (e.shiftKey ? this.prevHeading() : this.nextHeading()),
       k: () => this.#move(e.shiftKey ? -1 : 1, isLink),
       K: () => this.#move(e.shiftKey ? -1 : 1, isLink),
-      Home: () => this.#jumpTo(0),
+      Home: () => this.first(),
       End: () => this.#jumpTo(this.elements.length - 1),
       Enter: () => this.#activate(),
-      ' ': () => this.index >= 0 && this.#announce(this.elements[this.index]),
+      ' ': () => this.repeat(),
     };
 
     const action = actions[e.key];

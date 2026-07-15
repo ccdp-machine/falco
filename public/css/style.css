@@ -187,6 +187,10 @@ textarea {
   font-size: 0.9rem;
 }
 
+.hint a {
+  color: var(--accent);
+}
+
 kbd {
   background: var(--surface-2);
   border: 1px solid #34404f;
@@ -229,6 +233,21 @@ article .nav-current {
   outline: 3px solid var(--highlight);
   outline-offset: 3px;
   border-radius: 4px;
+}
+
+/* ------------------------------------------------------------ touch nav */
+
+/* Always visible (harmless on desktop) so the web-page navigator is usable
+   without a physical keyboard, e.g. Chrome on iPhone. */
+.touch-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.touch-nav button {
+  min-height: 44px; /* Apple's minimum recommended touch target */
 }
 
 /* --------------------------------------------------------------- footer */

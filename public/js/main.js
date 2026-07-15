@@ -227,30 +227,48 @@ $('#url-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') loadPage();
 });
 
+// Touch toolbar: same moves as the keyboard shortcuts, for devices without
+// a physical keyboard (e.g. Chrome on iPhone). Re-focusing the article
+// keeps keyboard navigation working seamlessly afterwards.
+function wireTouchNav(id, action) {
+  $(id).addEventListener('click', () => {
+    articleEl.focus();
+    action();
+  });
+}
+wireTouchNav('#nav-first', () => navigator_.first());
+wireTouchNav('#nav-prev', () => navigator_.prev());
+wireTouchNav('#nav-next', () => navigator_.next());
+wireTouchNav('#nav-prev-heading', () => navigator_.prevHeading());
+wireTouchNav('#nav-next-heading', () => navigator_.nextHeading());
+wireTouchNav('#nav-repeat', () => navigator_.repeat());
+
 // --------------------------------------------------------------- screen OCR
 
 const ocrOutput = $('#ocr-output');
 const captureBtn = $('#capture');
+const ocrUpload = $('#ocr-upload');
+const ocrHint = $('#ocr-hint');
 
 if (!isCaptureSupported()) {
-  captureBtn.disabled = true;
-  setStatus('Screen capture is not supported in this browser.');
+  // Hidden, not disabled: iOS Chrome has no getDisplayMedia at all, so the
+  // button would never work there — showing a photo/screenshot path instead.
+  captureBtn.hidden = true;
+  ocrHint.textContent =
+    "Screen capture isn't available on this device. Use \"Read a photo or screenshot\" " +
+    'below instead — take a screenshot or photo, then pick it to have the text read aloud.';
 }
 
-captureBtn.addEventListener('click', async () => {
+// Shared by both the screen-capture and photo-upload paths: runs OCR on an
+// image source (canvas or <img>) and speaks the result.
+async function runOcr(image) {
   try {
-    setStatus('Choose a screen, window or tab to read…');
-    const frame = await captureScreenFrame();
     setStatus('Recognizing text…');
-    captureBtn.disabled = true;
-
-    const text = await recognizeText(frame, (p) => {
+    const text = await recognizeText(image, (p) => {
       setStatus(`Recognizing text… ${Math.round(p * 100)}%`);
     });
-    captureBtn.disabled = false;
-
     if (!text) {
-      setStatus('No text found on the captured screen.');
+      setStatus('No text found in the image.');
       speech.announce('No text found.');
       return;
     }
@@ -258,13 +276,42 @@ captureBtn.addEventListener('click', async () => {
     setStatus('Text recognized. Reading…');
     speech.speak(text, { onEnd: () => setStatus('Finished reading.') });
   } catch (err) {
-    captureBtn.disabled = false;
+    setStatus(err.message || 'Text recognition failed.');
+  }
+}
+
+captureBtn.addEventListener('click', async () => {
+  captureBtn.disabled = true;
+  try {
+    setStatus('Choose a screen, window or tab to read…');
+    const frame = await captureScreenFrame();
+    await runOcr(frame);
+  } catch (err) {
     if (err.name === 'NotAllowedError') {
       setStatus('Screen capture was cancelled.');
     } else {
       setStatus(err.message || 'Screen capture failed.');
     }
+  } finally {
+    captureBtn.disabled = false;
   }
+});
+
+ocrUpload.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // allow re-selecting the same file next time
+  if (!file) return;
+
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    runOcr(img).finally(() => URL.revokeObjectURL(url));
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    setStatus('Could not load that image.');
+  };
+  img.src = url;
 });
 
 $('#read-ocr').addEventListener('click', () => {
@@ -304,4 +351,15 @@ document.addEventListener('keydown', (e) => {
 if (!SpeechEngine.isSupported()) {
   setStatus('This browser does not support speech synthesis.');
   playBtn.disabled = true;
+}
+
+// --------------------------------------------------------------- PWA setup
+
+// Registers the service worker so the app can be installed (Add to Home
+// Screen) and opens instantly offline. Feature-detected because Safari/old
+// browsers may lack it.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
 }

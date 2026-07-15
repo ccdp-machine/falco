@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Web Screen Reader</title>
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1419" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
 </head>
 <body>
   <header>
@@ -75,14 +79,26 @@
         <kbd>Enter</kbd> open link · <kbd>Space</kbd> repeat — or press Play to read everything.
       </p>
       <article id="article" tabindex="0" aria-label="Loaded page content"></article>
+      <div class="touch-nav" aria-label="Touch navigation">
+        <button id="nav-first" type="button">⏮ First</button>
+        <button id="nav-prev" type="button">◀ Prev</button>
+        <button id="nav-next" type="button">Next ▶</button>
+        <button id="nav-prev-heading" type="button">◀ H</button>
+        <button id="nav-next-heading" type="button">H ▶</button>
+        <button id="nav-repeat" type="button">🔁 Repeat</button>
+      </div>
     </section>
 
     <section role="tabpanel" data-panel="ocr" aria-label="Screen OCR reader" hidden>
       <div class="actions">
         <button id="capture" class="primary">🖥 Capture screen &amp; read</button>
         <button id="read-ocr">▶ Read again</button>
+        <label class="file-button">
+          📷 Read a photo or screenshot
+          <input type="file" id="ocr-upload" accept="image/*" hidden />
+        </label>
       </div>
-      <p class="hint">
+      <p class="hint" id="ocr-hint">
         Pick any screen, window or browser tab. A single frame is captured, the text on it is
         recognized locally in your browser, and read aloud. Nothing is uploaded.
       </p>
@@ -98,6 +114,7 @@
   <footer>
     <p id="status" role="status" aria-live="polite">Ready.</p>
     <p class="hint">Shortcuts: <kbd>Esc</kbd> stop · <kbd>p</kbd> pause/resume</p>
+    <p class="hint"><a href="bookmarklet.html">📱 iPhone? Install the bookmarklet</a></p>
   </footer>
 
   <script type="module" src="js/main.js"></script>
