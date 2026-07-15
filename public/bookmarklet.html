@@ -57,6 +57,31 @@
       </div>
       <p class="hint">Injects the same reader into this page, for a quick test before you install it.</p>
     </section>
+
+    <section role="tabpanel" aria-label="Share sheet via Shortcut" style="margin-top:1rem">
+      <h2>Alternative: a "Read Aloud" share-sheet action</h2>
+      <p class="hint">
+        iOS doesn't let a web app register itself in the share sheet (that needs a native
+        app like Speechify). But the Apple <strong>Shortcuts</strong> app can — and a Shortcut
+        can open this reader pre-loaded with whatever you shared. One tap of ▶ Play then reads
+        it. Works from Chrome, Safari, and most apps' Share buttons.
+      </p>
+      <ol>
+        <li>Open the <strong>Shortcuts</strong> app → <strong>+</strong> to create a shortcut.</li>
+        <li>Turn on <strong>Show in Share Sheet</strong> (shortcut settings), accept type <em>URLs</em> and <em>Text</em>.</li>
+        <li>
+          Add a <strong>Text</strong> action set to
+          <code id="share-url">…/?url=</code> followed by the
+          <strong>Shortcut Input</strong> variable (use <code>?text=</code> instead to read shared text).
+        </li>
+        <li>Add a <strong>URL</strong> action wrapping that Text, then an <strong>Open URLs</strong> action.</li>
+        <li>Name it <strong>"Read Aloud"</strong>. Now Share → Read Aloud on any page opens this app on it.</li>
+      </ol>
+      <p class="hint">
+        Tip: for the <code>?url=</code> form, the page address must be URL-encoded — add an
+        <strong>URL Encode</strong> action on the input first for pages with special characters.
+      </p>
+    </section>
   </main>
 
   <footer>
@@ -106,6 +131,9 @@
       script.src = '/reader.js';
       document.body.appendChild(script);
     });
+
+    // Show the real base URL in the Shortcut instructions.
+    document.getElementById('share-url').textContent = `${location.origin}/?url=`;
   </script>
 
   <script>

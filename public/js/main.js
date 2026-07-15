@@ -353,6 +353,38 @@ if (!SpeechEngine.isSupported()) {
   playBtn.disabled = true;
 }
 
+// ------------------------------------------------------------- deep links
+
+// Lets the app be opened pre-loaded with shared content via query params:
+//   ?url=https://…   load and read a page
+//   ?text=…          read raw text
+// This is the web-only bridge to the iOS share sheet: an iOS Shortcut named
+// "Read Aloud" can take the shared page/text and open this app with it. iOS
+// blocks speech from starting without a user gesture, so we pre-load and
+// prompt for a single Play tap rather than promising true auto-play.
+function handleDeepLink() {
+  const params = new URLSearchParams(location.search);
+  const sharedUrl = params.get('url');
+  const sharedText = params.get('text');
+  const tapHint = ' If you hear nothing, tap ▶ Play (iOS needs one tap to start audio).';
+
+  if (sharedUrl) {
+    selectTab('web');
+    $('#url-input').value = sharedUrl;
+    loadPage().then(() => {
+      if (currentArticleText) {
+        speech.speak(currentArticleText, { onEnd: () => setStatus('Finished reading.') });
+        setStatus('Reading shared page…' + tapHint);
+      }
+    });
+  } else if (sharedText) {
+    selectTab('text');
+    $('#text-input').value = sharedText;
+    readPlainText(sharedText);
+    setStatus('Reading shared text…' + tapHint);
+  }
+}
+
 // --------------------------------------------------------------- PWA setup
 
 // Registers the service worker so the app can be installed (Add to Home
@@ -363,3 +395,5 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
 }
+
+handleDeepLink();

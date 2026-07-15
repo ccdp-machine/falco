@@ -53,6 +53,12 @@ things fill the gap:
   self-contained "Read Aloud" bookmark you can install via Share → Add Bookmark. Since Chrome iOS
   has no extensions, this is the closest thing to a "plugin" — tapping it injects a floating,
   shadow-DOM reader widget into whatever page you're on (works in Safari too).
+- **Wire it into the share sheet with a Shortcut.** iOS won't let a web app register a share
+  target (that needs a native app like Speechify), but the Apple **Shortcuts** app can. The app
+  accepts shared content via query params — `?url=<page>` loads and reads a page, `?text=<text>`
+  reads raw text — so a "Read Aloud" Shortcut set to *Show in Share Sheet* can open the app
+  pre-loaded with whatever you shared (from Chrome, Safari, or any app). iOS still requires one
+  Play tap to start audio. `/bookmarklet.html` has the step-by-step recipe.
 
 Mode notes on iPhone:
 
